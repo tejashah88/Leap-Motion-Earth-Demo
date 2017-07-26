@@ -2,15 +2,21 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class HandManager : MonoBehaviour {
+using Leap;
+using Leap.Unity;
 
-	// Use this for initialization
-	void Start () {
-		
-	}
-	
-	// Update is called once per frame
-	void Update () {
-		
-	}
+public interface HandManager {
+  void Zero();
+  void OneToZero(int eventLife);
+  void TwoToZero(int eventLife);
+
+  void One(Hand presentHand);
+  void ZeroToOne(Hand futureHand, int eventLife);
+  void TwoToOne(Hand futureHand, int eventLife);
+
+  void Two(Hand[] presentHands);
+  void ZeroToTwo(Hand[] futureHands, int eventLife);
+  void OneToTwo(Hand[] futureHands, int eventLife);
+
+  void TooManyMands();
 }

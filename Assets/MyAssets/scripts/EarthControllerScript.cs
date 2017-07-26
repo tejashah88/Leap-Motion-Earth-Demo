@@ -59,16 +59,25 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
     setMovementStatus(MovementStatus.Unknown);*/
     //setDebugText(rb.angularVelocity.magnitude.ToString());
   }
-  public void OneToZero(int eventLife) {
-    //Debug.Log(eventLife);
-    this.setDebugText("OneToZero for " + eventLife);
+  public void OneToZero(float transLife) {
+    this.setDebugText("OneToZero for " + transLife);
   }
-  public void TwoToZero(int eventLife) {
-    this.setDebugText("TwoToZero for " + eventLife);
+  public void TwoToZero(float transLife) {
+    this.setDebugText("TwoToZero for " + transLife);
   } // unlikely
 
   public void One(Hand presentHand) {
-    this.setDebugText("One");
+    this.setDebugText(
+      this.buildDebugText(
+        "One",
+        "pos-x = " + (presentHand.PalmPosition.x - 52.2f).ToString("F3"),
+        "pos-y = " + (presentHand.PalmPosition.y - 1.09f).ToString("F3"),
+        "pos-z = " + (presentHand.PalmPosition.z - 8.7f).ToString("F3"),
+        "vel-x = " + presentHand.PalmVelocity.x.ToString("F3"),
+        "vel-y = " + presentHand.PalmVelocity.y.ToString("F3"),
+        "vel-z = " + presentHand.PalmVelocity.z.ToString("F3")
+      )
+    );
     //Hand hand = presentHand;
 
     /*if (HandUtils.getGrabAngleDegrees(hand) >= 170) {
@@ -104,106 +113,64 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
       }
     }*/
   }
-  public void ZeroToOne(Hand futureHand, int eventLife) {
-    this.setDebugText("ZeroToOne for " + eventLife);
+  public void ZeroToOne(Hand futureHand, float transLife) {
+    this.setDebugText("ZeroToOne for " + transLife);
   }
-  public void TwoToOne(Hand futureHand, int eventLife) {
-    this.setDebugText("TwoToOne for " + eventLife);
+  public void TwoToOne(Hand futureHand, float transLife) {
+    this.setDebugText("TwoToOne for " + transLife);
   }
 
   public void Two(Hand[] presentHands) {
     this.setDebugText("Two");
   }
-  public void ZeroToTwo(Hand[] futureHands, int eventLife) {
-    this.setDebugText("ZeroToTwo for " + eventLife);
+  public void ZeroToTwo(Hand[] futureHands, float transLife) {
+    this.setDebugText("ZeroToTwo for " + transLife);
   } // unlikely
-  public void OneToTwo(Hand[] futureHands, int eventLife) {
-    this.setDebugText("OneToTwo for " + eventLife);
+  public void OneToTwo(Hand[] futureHands, float transLife) {
+    this.setDebugText("OneToTwo for " + transLife);
   }
 
   public void TooManyMands() {
     this.setDebugText("TooManyHands");
   }
 
+  public string buildDebugText(params string[] texts) {
+    string finalText = "";
+    foreach (string text in texts) {
+      finalText += text + "\n";
+    }
 
-  // Status stuff
-  private enum MovementStatus { Unknown, Unstable, Stabilizing, Stable, ExecuteCommand };
-  private enum HandStatus { Unknown, NoHands, OneHand, TwoHands, TooManyHands };
+    return finalText.Trim();
+  }
 
   // internal vars
   private LeapProvider provider;
-  
-  // logic vars
-  private MovementStatus moveStatus;
-  private HandStatus handStatus;
   
   // UI vars
   public Text movementStatusText;
   public Text handStatusText;
   public Text debugText;
   
-  void setHandStatus(HandStatus hStatus) {
-    handStatus = hStatus;
-    string text = "null";
-    Color color = Color.white;
+  void setHandStatus(string text) {
+    setHandStatus(text, Color.white);
+  }
 
-    switch (handStatus) {
-      case HandStatus.Unknown:
-        text = "Unknown";
-        color = Color.gray;
-        break;
-      case HandStatus.NoHands:
-        text = "No Hands";
-        color = Color.red;
-        break;
-      case HandStatus.OneHand:
-        text = "One Hand";
-        color = Color.green;
-        break;
-      case HandStatus.TwoHands:
-        text = "Two Hands";
-        color = Color.green;
-        break;
-      case HandStatus.TooManyHands:
-        text = "Too many hands";
-        color = Color.red;
-        break;
-    }
-
-    handStatusText.text = text;
-    handStatusText.color = color;
+  void setHandStatus(string text, Color color) {
+    setStatus(handStatusText, text, color);
   }
   
-  void setMovementStatus(MovementStatus mStatus) {
-    moveStatus = mStatus;
-    string text = "null";
-    Color color = Color.white;
+  void setMovementStatus(string text) {
+    setMovementStatus(text, Color.white);
+  }
 
-    switch (moveStatus) {
-      case MovementStatus.Unknown:
-        text = "Unknown";
-        color = Color.gray;
-        break;
-      case MovementStatus.Unstable:
-        text = "Unstable";
-        color = Color.red;
-        break;
-      case MovementStatus.Stabilizing:
-        text = "Stabilizing";
-        color = Color.yellow;
-        break;
-      case MovementStatus.Stable:
-        text = "Stable";
-        color = Color.green;
-        break;
-      case MovementStatus.ExecuteCommand:
-        text = "Executing Command...";
-        color = Color.cyan;
-        break;
-   }
+  void setMovementStatus(string text, Color color) {
+    setStatus(movementStatusText, text, color);
+  }
 
-   movementStatusText.text = text;
-   movementStatusText.color = color;}
+  void setStatus(Text txtObj, string text, Color color) {
+    txtObj.text = text;
+    txtObj.color = color;
+  }
 
   void setDebugText(string text) {
     setDebugText(text, Color.white);
@@ -220,7 +187,7 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
 
   // Use this for initialization
   void Start() {
-    hmp = new HandManagerProcessor(2, 30);
+    hmp = new HandManagerProcessor(2, 1.0f);
     hmp.Add(this);
 
     defaultEarthScale = transform.localScale;
@@ -232,8 +199,8 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
 
     defaultAngularDrag = rb.angularDrag;
     
-    setHandStatus(HandStatus.Unknown);
-    setMovementStatus(MovementStatus.Unknown);
+    //setHandStatus(HandStatus.Unknown);
+    //setMovementStatus(MovementStatus.Unknown);
   }
 
   private float defaultAngularDrag;

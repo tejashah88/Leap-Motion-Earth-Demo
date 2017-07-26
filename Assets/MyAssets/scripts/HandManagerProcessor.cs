@@ -8,18 +8,16 @@ using Leap.Unity;
 public class HandManagerProcessor {
   private List<HandManager> managers;
 
-  private int currentTransitionLife = 0;
-
-  private Frame previousFrame;
+  private float currentTransitionLife = 0;
 
   private int prevHandCount;
   private int prevHandCountBeforeTransition;
   private bool isTransitioning;
 
-  private int maxTransitionLife;
+  private float maxTransitionLife;
   private int maxHandCount;
 
-  public HandManagerProcessor(int mhc, int mtl) {
+  public HandManagerProcessor(int mhc, float mtl) {
     this.managers = new List<HandManager>();
     this.maxTransitionLife = mtl;
     this.maxHandCount = mhc;
@@ -38,7 +36,7 @@ public class HandManagerProcessor {
     this.managers.RemoveAll(manager => true);
   }
   
-  void handleTransitionPhase(Frame frame, int hbtCount, int ctl, HandManager manager) {
+  void handleTransitionPhase(Frame frame, int hbtCount, float ctl, HandManager manager) {
     //Debug.Log(ctl);
     switch (frame.Hands.Count) {
       case 0:
@@ -89,7 +87,7 @@ public class HandManagerProcessor {
 
     if (isTransitioning) {
       if (currentTransitionLife < maxTransitionLife) {
-        currentTransitionLife += 1;
+        currentTransitionLife += Time.deltaTime;
         handleTransitionPhase(frame, prevHandCountBeforeTransition, currentTransitionLife, manager);
       } else {
         isTransitioning = false;
@@ -99,7 +97,6 @@ public class HandManagerProcessor {
     }
 
     prevHandCount = currentHandCount;
-    previousFrame = frame;
   }
 
   public void ProcessUpdate(Frame frame) {

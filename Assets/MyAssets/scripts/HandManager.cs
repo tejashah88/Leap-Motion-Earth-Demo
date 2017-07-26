@@ -7,16 +7,16 @@ using Leap.Unity;
 
 public interface HandManager {
   void Zero();
-  void OneToZero(int eventLife);
-  void TwoToZero(int eventLife);
+  void OneToZero(float transLife);
+  void TwoToZero(float transLife);
 
   void One(Hand presentHand);
-  void ZeroToOne(Hand futureHand, int eventLife);
-  void TwoToOne(Hand futureHand, int eventLife);
+  void ZeroToOne(Hand futureHand, float transLife);
+  void TwoToOne(Hand futureHand, float transLife);
 
   void Two(Hand[] presentHands);
-  void ZeroToTwo(Hand[] futureHands, int eventLife);
-  void OneToTwo(Hand[] futureHands, int eventLife);
+  void ZeroToTwo(Hand[] futureHands, float transLife);
+  void OneToTwo(Hand[] futureHands, float transLife);
 
   void TooManyMands();
 }

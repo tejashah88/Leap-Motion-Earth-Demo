@@ -8,113 +8,197 @@ using Leap;
 using Leap.Unity;
 
 public class EarthControllerScript : MonoBehaviour, HandManager {
+  private const int maxZeroRotFrame = 100;
+  private int currZeroRotFrame;
+  private float maxZeroTimer = 5.0f;
+  private float currZeroTimer;
+
   public void Zero() {
     this.setDebugText("Zero");
-
-    /*if (isPinchingRot) {
-      transform.Rotate(new Vector3(0, 1, 0) * -(currentHandPos.z - handOriginPos.z) * rotationMultiplier * Time.deltaTime * rotationPinchModifier * 2, Space.World);
-      transform.Rotate(new Vector3(0, 0, 1) * (currentHandPos.y - handOriginPos.y) * rotationMultiplier * Time.deltaTime * rotationPinchModifier * 2, Space.World);
-      rotationPinchModifier -= 0.005f;
-      if (rotationPinchModifier <= 0) {
-        isPinchingRot = false;
-      }
-    } else {
-      inactiveTime += Time.deltaTime;
-      if (inactiveTime >= inactiveTimeTrigger) {
-        switch (idleState) {
-          case IdleState.NotIdle:
-            idleState = IdleState.Lerping;
-            break;
-          case IdleState.Lerping:
-            transform.rotation = Quaternion.Lerp(transform.rotation, defaultEarthRotation, lerpPercentAmount);
-            
-            Vector3 euAngles = transform.rotation.eulerAngles;
-            if (Mathf.Abs(euAngles.x) <= minEulerAngleDelerp && Mathf.Abs(euAngles.z) <= minEulerAngleDelerp)
-              idleState = IdleState.Rotating;
-            break;
-          case IdleState.Rotating:
-            transform.Rotate(Vector3.up, 10f * Time.deltaTime); //according to OG spin free script
-            break;
-        }
-      }
-    }*/
-
-    /*if (rb.angularVelocity.magnitude > 0.2f) {
-      setAngularDrag(0.8f);
-    } else {
-      restoreAngularDrag();
-    }
-
-    if (rb.angularVelocity.magnitude < 0.1) {
-      //rb.AddTorque(Vector3.up * 5f * Time.deltaTime, ForceMode.Acceleration);
-    }
-
     transform.position = defaultEarthPosition;
     transform.localScale = defaultEarthScale;
-    Quaternion.Lerp(transform.rotation, defaultEarthRotation, Time.time * 10);
-    //transform.rotation = defaultEarthRotation;
 
-    //doNotReturnToStable = false;
-    setHandStatus(HandStatus.NoHands);
-    setMovementStatus(MovementStatus.Unknown);*/
-    //setDebugText(rb.angularVelocity.magnitude.ToString());
+    if (currZeroTimer < maxZeroTimer) {
+      currZeroTimer += Time.deltaTime;
+      if (currZeroTimer > 0.8f * maxZeroTimer) {
+        setAngularDrag(3f);
+      }
+    } else {
+      restoreAngularDrag();
+      if (currZeroRotFrame < maxZeroRotFrame) {
+        //setAngularDrag(10f);
+        transform.rotation = Quaternion.Lerp(transform.rotation, defaultEarthRotation, catchUpDelta / 12);
+        currZeroRotFrame++;
+      } else {
+        //restoreAngularDrag();
+        transform.Rotate(Vector3.up, 10f * Time.deltaTime);
+      }
+    }
   }
   public void OneToZero(float transLife) {
     this.setDebugText("OneToZero for " + transLife);
+    currZeroRotFrame = 0;
+    currZeroTimer = 0.0f;
+    if (oneStatus != OneHandStatus.IDLE) {
+      transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 4);
+      transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 4);
+    }
+
+    setHandStatus("IDLE");
   }
   public void TwoToZero(float transLife) {
     this.setDebugText("TwoToZero for " + transLife);
   } // unlikely
 
+  private enum OneHandStatus { NULL, IDLE, HOLDING, FORCE_PUSHING, FORCE_PULLING };
+
+  bool isHolding;
+  bool hasThrown;
+
+  private OneHandStatus oneStatus;
+
+  private int idle_iter = 0;
+  private int holding_iter = 0;
+  private int force_pull_iter = 0;
+
+  private float max_holding_iters;
+  private float max_idle_iters;
+  private float max_force_pull_iters;
+
+  private float catchUpDelta = 0.25f;
+  private float minPercentDone = 0.99f;
+
+  private Vector3 recordedPalmNormal;
+
+  private bool force_push_calculated;
+
+  private Vector3 posBeforeTransStart;
+  private Vector3 scaleBeforeTransStart;
+  private Vector3 scaleAfterTransStart;
+
   public void One(Hand presentHand) {
+    Vector3 presentHandPos = getHandPos(presentHand);
+    Vector3 presentHandVel = getHandVel(presentHand);
+
     this.setDebugText(
       this.buildDebugText(
         "One",
-        "pos-x = " + (presentHand.PalmPosition.x - 52.2f).ToString("F3"),
-        "pos-y = " + (presentHand.PalmPosition.y - 1.09f).ToString("F3"),
-        "pos-z = " + (presentHand.PalmPosition.z - 8.7f).ToString("F3"),
-        "vel-x = " + presentHand.PalmVelocity.x.ToString("F3"),
-        "vel-y = " + presentHand.PalmVelocity.y.ToString("F3"),
-        "vel-z = " + presentHand.PalmVelocity.z.ToString("F3")
+        "pos-right = " + presentHandPos.x.ToString("F3"),
+        "pos-up = " + presentHandPos.y.ToString("F3"),
+        "pos-forward = " + presentHandPos.z.ToString("F3"),
+        "vel-right = " + presentHandVel.x.ToString("F3"),
+        "vel-up = " + presentHandVel.y.ToString("F3"),
+        "vel-forward = " + presentHandVel.z.ToString("F3"),
+        "grab-angle = "  + getGrabAngleDegrees(presentHand)
       )
     );
-    //Hand hand = presentHand;
 
-    /*if (HandUtils.getGrabAngleDegrees(hand) >= 170) {
-      if (iheIsChangable) {
-        isHoldingEarth = !isHoldingEarth;
-        iheIsChangable = false;
+    OneHandStatus prevOneStatus = oneStatus;
+
+    if (presentHandPos.z >= 0.125f && getGrabAngleDegrees(presentHand) >= 160) {
+      if (oneStatus == OneHandStatus.IDLE) {
+        oneStatus = OneHandStatus.HOLDING;
       }
-    } else {
-      iheIsChangable = true;
-    }*/
+    } else if (presentHandVel.z >= 0.8f && getGrabAngleDegrees(presentHand) <= 30) {
+      if (oneStatus == OneHandStatus.HOLDING) { // mostly open
+        oneStatus = OneHandStatus.FORCE_PUSHING;
+      }
+    } else if (presentHandVel.z <= -0.8f && getGrabAngleDegrees(presentHand) <= 30) {
+      if (oneStatus == OneHandStatus.FORCE_PUSHING) { // mostly open
+        oneStatus = OneHandStatus.FORCE_PULLING;
+      }
+    } else if (presentHandVel.y >= 0.8f && getGrabAngleDegrees(presentHand) <= 30) {
+      if (oneStatus != OneHandStatus.IDLE) { // mostly open
+        oneStatus = OneHandStatus.IDLE;
+      }
+    }
 
-    /*setDebugText(
-      "grab angle = " + getGrabAngleDegrees(hand) + "\n" +
-      "transform.localScale = " + transform.localScale.x + "\n" +
-      "PalmVelocity Magnitude = " + hand.PalmVelocity.Magnitude
-    );*/
+    if (oneStatus != prevOneStatus) {
+      idle_iter = 0;
+      holding_iter = 0;
+      force_pull_iter = 0;
+      force_push_calculated = false;
+    }
 
+    switch(oneStatus) {
+      case OneHandStatus.IDLE:
+        setHandStatus("IDLE");
 
-    /*if (isHoldingEarth) {
-      transform.position = HandUtils.getHandSphereCenter(hand);
-      transform.localScale = Vector3.one * HandUtils.getHandSphereDiameter(hand) / 100f * 2.5f;
-    } else {
-      transform.position = defaultEarthPosition;
-      transform.localScale = defaultEarthScale;
-      if (hand.PinchDistance <= 30) {
-        setAngularDrag(10f);
-      } else {
-        setAngularDrag(0.5f);
-        if (HandUtils.getHandSpeed(hand) > 0.5f) {
-          rb.AddTorque(new Vector3(0, 1, 0) * -(hand.PalmVelocity.z) * rotationMultiplier * Time.deltaTime, ForceMode.Acceleration);
-          rb.AddTorque(new Vector3(0, 0, 1) * (hand.PalmVelocity.y) * rotationMultiplier * Time.deltaTime, ForceMode.Acceleration);
+        if (idle_iter <= max_idle_iters) {
+          if (idle_iter == 0) {
+            max_idle_iters = getIterationsForLerp(minPercentDone, catchUpDelta / 8);
+          }
+
+          transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 8);
+          transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 8);
+          idle_iter++;
+        } else {
+          transform.position = defaultEarthPosition;
+          transform.localScale = defaultEarthScale;
+          
+          if (presentHand.PinchDistance <= 30) {
+            setAngularDrag(3f);
+          } else {
+            restoreAngularDrag();
+            if (getHandSpeed(presentHand) > 0.3f) {
+              rb.AddTorque(new Vector3(0, 1, 0) * -presentHandVel.x * rotationMultiplier * Time.deltaTime, ForceMode.Acceleration);
+              rb.AddTorque(new Vector3(0, 0, 1) * presentHandVel.y * rotationMultiplier * Time.deltaTime, ForceMode.Acceleration);
+            }
+          }
         }
-      }
-    }*/
+
+        break;
+      case OneHandStatus.HOLDING:
+        setHandStatus("HOLDING");
+
+        if (holding_iter <= max_holding_iters) {
+          if (holding_iter == 0) {
+            max_holding_iters = getIterationsForLerp(minPercentDone, catchUpDelta);
+            scaleAfterTransStart = Vector3.one * getHandSphereDiameter(presentHand) / 100f * 2.5f;
+          }
+
+          transform.position = Vector3.Lerp(transform.position, getHandSphereCenter(presentHand), catchUpDelta);
+          transform.localScale = Vector3.Lerp(transform.localScale, scaleAfterTransStart, catchUpDelta);
+          holding_iter++;
+        } else {
+          transform.position = getHandSphereCenter(presentHand);
+          Vector3 finalScale = Vector3.one * getHandSphereDiameter(presentHand) / 100f * 2.5f;
+          transform.localScale = Vector3.Lerp(transform.localScale, finalScale, catchUpDelta);
+        }
+        break;
+      case OneHandStatus.FORCE_PUSHING:
+        setHandStatus("FORCE_PUSHING");
+
+        if (!force_push_calculated) {
+          recordedPalmNormal = new Vector3(presentHand.PalmNormal.x, presentHand.PalmNormal.y, presentHand.PalmNormal.z) * getHandVel(presentHand).magnitude;
+          force_push_calculated = true;
+        } else {
+          transform.position += recordedPalmNormal * Time.deltaTime;
+        }
+
+        break;
+      case OneHandStatus.FORCE_PULLING:
+        setHandStatus("FORCE_PULLING");
+
+        if (force_pull_iter <= max_force_pull_iters) {
+          if (force_pull_iter == 0) {
+            max_force_pull_iters = getIterationsForLerp(minPercentDone, catchUpDelta);
+            scaleAfterTransStart = Vector3.one * getHandSphereDiameter(presentHand) / 100f * 2.5f;
+          }
+
+          transform.position = Vector3.Lerp(transform.position, getHandSphereCenter(presentHand), catchUpDelta / 2);
+          transform.localScale = Vector3.Lerp(transform.localScale, scaleAfterTransStart, catchUpDelta);
+          force_pull_iter++;
+        } else {
+          oneStatus = OneHandStatus.HOLDING;
+        }
+
+        break;
+    }
   }
   public void ZeroToOne(Hand futureHand, float transLife) {
     this.setDebugText("ZeroToOne for " + transLife);
+    oneStatus = OneHandStatus.IDLE;
   }
   public void TwoToOne(Hand futureHand, float transLife) {
     this.setDebugText("TwoToOne for " + transLife);
@@ -134,6 +218,52 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
     this.setDebugText("TooManyHands");
   }
 
+  public Vector3 getHandPos(Hand hand) {
+    // x, y, z => z, y, -x
+    return new Vector3(hand.PalmPosition.z - 8.7f, hand.PalmPosition.y - 1.09f, 52.15f - hand.PalmPosition.x);
+  }
+
+  public Vector3 getHandVel(Hand hand) {
+    // x, y, z => z, y, -x
+    return new Vector3(hand.PalmVelocity.z, hand.PalmVelocity.y, -hand.PalmVelocity.x);
+  }
+
+  public static Hand[] designateRightLeftHands(Frame frame) {
+    Hand rightHand, leftHand;
+    bool isFirstHandLeft = frame.Hands[0].IsLeft;
+    if (isFirstHandLeft) {
+      leftHand = frame.Hands[0];
+      rightHand = frame.Hands[1];
+    } else {
+      leftHand = frame.Hands[1];
+      rightHand = frame.Hands[0];
+    }
+
+    return new Hand[] { leftHand, rightHand };
+  }
+
+  // 0 = open, pi = close
+  public static float getGrabAngleDegrees(Hand hand) {
+    return hand.GrabAngle * Mathf.Rad2Deg;
+  }
+
+  public static float getHandSpeed(Hand hand) {
+    return hand.PalmVelocity.Magnitude;
+  }
+
+  public static float getHandSphereRadius(Hand hand, float minSphereRadius = 0.03f, float maxSphereRadius = 0.1f) {
+    return minSphereRadius + (maxSphereRadius - minSphereRadius) * (1 - hand.GrabStrength);
+  }
+
+  public static float getHandSphereDiameter(Hand hand, float minSphereRadius = 0.03f, float maxSphereRadius = 0.1f) {
+    return 2 * getHandSphereRadius(hand, minSphereRadius, maxSphereRadius);
+  }
+
+  public static Vector3 getHandSphereCenter(Hand hand, float minSphereRadius = 0.03f, float maxSphereRadius = 0.1f) {
+    float _sphereRadius = getHandSphereRadius(hand, minSphereRadius, maxSphereRadius);
+    return (hand.PalmPosition + hand.PalmNormal * _sphereRadius).ToVector3();
+  }
+
   public string buildDebugText(params string[] texts) {
     string finalText = "";
     foreach (string text in texts) {
@@ -150,6 +280,14 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
   public Text movementStatusText;
   public Text handStatusText;
   public Text debugText;
+
+  int getIterationsForLerp(float percentDone, float lerpDelta) {
+    return Mathf.RoundToInt(Mathf.Log(1 - percentDone, 1 - lerpDelta));
+  }
+
+  float getDeltaForLerp(float percentDone, int iterations) {
+    return Mathf.Pow(1 - percentDone, 1.0f / iterations);
+  }
   
   void setHandStatus(string text) {
     setHandStatus(text, Color.white);
@@ -187,7 +325,7 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
 
   // Use this for initialization
   void Start() {
-    hmp = new HandManagerProcessor(2, 1.0f);
+    hmp = new HandManagerProcessor(2, 0.1f);
     hmp.Add(this);
 
     defaultEarthScale = transform.localScale;
@@ -205,12 +343,6 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
 
   private float defaultAngularDrag;
 
-  // millimeters/second
-  public float maxStableHandSpeed;
-
-  // micro-seconds
-  public float maxTimeVisible;
-
   public void setAngularDrag(float newDrag) {
     rb.angularDrag = newDrag;
   }
@@ -219,38 +351,11 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
     rb.angularDrag = defaultAngularDrag;
   }
 
-  private bool doNotReturnToStable = false;
-
-  private Leap.Vector handOriginPos, leftHandOriginPos, rightHandOriginPos;
-
-  private float inactiveTime = 0f;
-  public float inactiveTimeTrigger;
-
   private Vector3 defaultEarthScale;
   private Vector3 defaultEarthPosition;
   private Quaternion defaultEarthRotation;
-  private Quaternion startEarthRotation;
-
-  public float minEulerAngleDelerp;
-  public float lerpPercentAmount;
-  private int previousHandCount;
-  private Vector3 originalLocalScale;
-
-  private enum IdleState { NotIdle, Lerping, Rotating }
-  private IdleState idleState;
-
-  public float minPinchDistance;
 
   public float rotationMultiplier;
-
-  public float minConfidence;
-
-  private Leap.Vector currentHandPos;
-  private bool isPinchingRot = false;
-  private float rotationPinchModifier;
-
-  private bool isHoldingEarth = false;
-  private bool iheIsChangable = true;
 
   // Update is called once per frame
   void Update () {

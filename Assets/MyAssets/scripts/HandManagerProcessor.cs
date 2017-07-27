@@ -17,6 +17,20 @@ public class HandManagerProcessor {
   private float maxTransitionLife;
   private int maxHandCount;
 
+  private Hand[] designateRightLeftHands(Frame frame) {
+    Hand rightHand, leftHand;
+    bool isFirstHandLeft = frame.Hands[0].IsLeft;
+    if (isFirstHandLeft) {
+      leftHand = frame.Hands[0];
+      rightHand = frame.Hands[1];
+    } else {
+      leftHand = frame.Hands[1];
+      rightHand = frame.Hands[0];
+    }
+
+    return new Hand[] { leftHand, rightHand };
+  }
+
   public HandManagerProcessor(int mhc, float mtl) {
     this.managers = new List<HandManager>();
     this.maxTransitionLife = mtl;
@@ -53,7 +67,7 @@ public class HandManagerProcessor {
           manager.TwoToOne(currentHand, ctl);
         break;
       case 2:
-        Hand[] currentHands = HandUtils.designateRightLeftHands(frame);
+        Hand[] currentHands = designateRightLeftHands(frame);
         if (hbtCount == 0)
           manager.ZeroToTwo(currentHands, ctl);
         if (hbtCount == 1)
@@ -71,7 +85,7 @@ public class HandManagerProcessor {
         manager.One(frame.Hands[0]);
         break;
       case 2:
-        manager.Two(HandUtils.designateRightLeftHands(frame));
+        manager.Two(designateRightLeftHands(frame));
         break;
     }
   }

@@ -15,6 +15,10 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
 
   public void Zero() {
     this.setDebugText("Zero");
+    setHandStatus("IDLE");
+    oneStatus = OneHandStatus.NULL;
+    twoStatus = TwoHandStatus.NULL;
+
     transform.position = defaultEarthPosition;
     transform.localScale = defaultEarthScale;
 
@@ -26,11 +30,9 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
     } else {
       restoreAngularDrag();
       if (currZeroRotFrame < maxZeroRotFrame) {
-        //setAngularDrag(10f);
         transform.rotation = Quaternion.Lerp(transform.rotation, defaultEarthRotation, catchUpDelta / 12);
         currZeroRotFrame++;
       } else {
-        //restoreAngularDrag();
         transform.Rotate(Vector3.up, 10f * Time.deltaTime);
       }
     }
@@ -43,26 +45,34 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
       transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 4);
       transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 4);
     }
-
-    setHandStatus("IDLE");
   }
   public void TwoToZero(float transLife) {
     this.setDebugText("TwoToZero for " + transLife);
+    currZeroRotFrame = 0;
+    currZeroTimer = 0.0f;
+    if (twoStatus != TwoHandStatus.IDLE) {
+      transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 4);
+      transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 4);
+    }
   } // unlikely
 
   private enum OneHandStatus { NULL, IDLE, HOLDING, FORCE_PUSHING, FORCE_PULLING };
+  private enum TwoHandStatus { NULL, IDLE, LEFT_HOLDING, RIGHT_HOLDING, FORCE_PUSH_TO_LEFT, FORCE_PUSH_TO_RIGHT };
 
   bool isHolding;
   bool hasThrown;
 
   private OneHandStatus oneStatus;
+  private TwoHandStatus twoStatus;
 
   private int idle_iter = 0;
   private int holding_iter = 0;
+  private int force_push_iter = 0;
   private int force_pull_iter = 0;
 
   private float max_holding_iters;
   private float max_idle_iters;
+  private float max_force_push_iters;
   private float max_force_pull_iters;
 
   private float catchUpDelta = 0.25f;
@@ -76,7 +86,11 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
   private Vector3 scaleBeforeTransStart;
   private Vector3 scaleAfterTransStart;
 
+  private Hand holdingHand;
+
   public void One(Hand presentHand) {
+    twoStatus = TwoHandStatus.NULL;
+
     Vector3 presentHandPos = getHandPos(presentHand);
     Vector3 presentHandVel = getHandVel(presentHand);
 
@@ -120,9 +134,9 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
       force_push_calculated = false;
     }
 
-    switch(oneStatus) {
+    switch (oneStatus) {
       case OneHandStatus.IDLE:
-        setHandStatus("IDLE");
+        setHandStatus("IDLE_ONE");
 
         if (idle_iter <= max_idle_iters) {
           if (idle_iter == 0) {
@@ -135,7 +149,7 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
         } else {
           transform.position = defaultEarthPosition;
           transform.localScale = defaultEarthScale;
-          
+
           if (presentHand.PinchDistance <= 30) {
             setAngularDrag(3f);
           } else {
@@ -150,6 +164,8 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
         break;
       case OneHandStatus.HOLDING:
         setHandStatus("HOLDING");
+
+        holdingHand = presentHand;
 
         if (holding_iter <= max_holding_iters) {
           if (holding_iter == 0) {
@@ -202,16 +218,220 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
   }
   public void TwoToOne(Hand futureHand, float transLife) {
     this.setDebugText("TwoToOne for " + transLife);
+
+    Vector3 finalScale;
+    if (twoStatus == TwoHandStatus.LEFT_HOLDING || twoStatus == TwoHandStatus.RIGHT_HOLDING) {
+      if (futureHand.Id == holdingHand.Id) {
+        oneStatus = OneHandStatus.HOLDING;
+
+        transform.position = getHandSphereCenter(futureHand);
+        finalScale = Vector3.one * getHandSphereDiameter(futureHand) / 100f * 2.5f;
+        transform.localScale = Vector3.Lerp(transform.localScale, finalScale, catchUpDelta);
+      } else {
+        twoStatus = TwoHandStatus.NULL;
+      }
+    } else {
+      oneStatus = OneHandStatus.IDLE;
+      transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 8);
+      transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 8);
+    }
   }
 
   public void Two(Hand[] presentHands) {
+    oneStatus = OneHandStatus.NULL;
+
+    Hand leftHand = presentHands[0];
+    Hand rightHand = presentHands[1];
+    
+    Vector3 leftHandPos = getHandPos(leftHand);
+    Vector3 leftHandVel = getHandVel(leftHand);
+    Vector3 rightHandPos = getHandPos(rightHand);
+    Vector3 rightHandVel = getHandVel(rightHand);
+
+    Vector3 bothHandVel = ( leftHandVel + rightHandVel ) / 2;
+
     this.setDebugText("Two");
+    this.setDebugText(
+      this.buildDebugText(
+        "Two",
+        "left-pos-right = " + leftHandPos.x.ToString("F3"),
+        "left-pos-up = " + leftHandPos.y.ToString("F3"),
+        "left-pos-forward = " + leftHandPos.z.ToString("F3"),
+        "left-vel-right = " + leftHandVel.x.ToString("F3"),
+        "left-vel-up = " + leftHandVel.y.ToString("F3"),
+        "left-vel-forward = " + leftHandVel.z.ToString("F3"),
+        "left-grab-angle = "  + getGrabAngleDegrees(leftHand)
+      )
+    );
+
+    TwoHandStatus prevTwoStatus = twoStatus;
+
+    if (leftHandPos.z >= 0.125f && getGrabAngleDegrees(leftHand) >= 160) {
+      if (twoStatus == TwoHandStatus.IDLE) {
+        twoStatus = TwoHandStatus.LEFT_HOLDING;
+      }
+    } else if (rightHandPos.z >= 0.125f && getGrabAngleDegrees(rightHand) >= 160) {
+      if (twoStatus == TwoHandStatus.IDLE) {
+        twoStatus = TwoHandStatus.RIGHT_HOLDING;
+      }
+    } else if (leftHandVel.x >= 0.6f && getGrabAngleDegrees(leftHand) <= 30) {
+      if (twoStatus == TwoHandStatus.LEFT_HOLDING) { // mostly open
+        twoStatus = TwoHandStatus.FORCE_PUSH_TO_RIGHT;
+      }
+    } else if (rightHandVel.x <= -0.6f && getGrabAngleDegrees(rightHand) <= 30) {
+      if (twoStatus == TwoHandStatus.RIGHT_HOLDING) { // mostly open
+        twoStatus = TwoHandStatus.FORCE_PUSH_TO_LEFT;
+      }
+    } else if (leftHandVel.y >= 0.8f && getGrabAngleDegrees(leftHand) <= 30 || rightHandVel.y >= 0.8f && getGrabAngleDegrees(rightHand) <= 30) {
+      if (twoStatus != TwoHandStatus.IDLE) { // mostly open
+        twoStatus = TwoHandStatus.IDLE;
+      }
+    }
+
+    if (twoStatus != prevTwoStatus) {
+      idle_iter = 0;
+      holding_iter = 0;
+      force_pull_iter = 0;
+      force_push_calculated = false;
+    }
+
+    switch (twoStatus) {
+      case TwoHandStatus.IDLE:
+        setHandStatus("IDLE_TWO");
+
+        if (idle_iter <= max_idle_iters) {
+          if (idle_iter == 0) {
+            max_idle_iters = getIterationsForLerp(minPercentDone, catchUpDelta / 8);
+          }
+
+          transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 8);
+          transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 8);
+          idle_iter++;
+        } else {
+          transform.position = defaultEarthPosition;
+          transform.localScale = defaultEarthScale;
+
+          if (leftHand.PinchDistance <= 30 || rightHand.PinchDistance <= 30) {
+            setAngularDrag(3f);
+          } else {
+            restoreAngularDrag();
+            if (bothHandVel.magnitude > 0.3f) {
+              rb.AddTorque(new Vector3(0, 1, 0) * -bothHandVel.x * rotationMultiplier * Time.deltaTime, ForceMode.Acceleration);
+              rb.AddTorque(new Vector3(0, 0, 1) * bothHandVel.y * rotationMultiplier * Time.deltaTime, ForceMode.Acceleration);
+            }
+          }
+        }
+
+        break;
+      case TwoHandStatus.LEFT_HOLDING:
+        setHandStatus("LEFT_HOLDING");
+
+        holdingHand = leftHand;
+
+        if (holding_iter <= max_holding_iters) {
+          if (holding_iter == 0) {
+            max_holding_iters = getIterationsForLerp(minPercentDone, catchUpDelta);
+            scaleAfterTransStart = Vector3.one * getHandSphereDiameter(leftHand) / 100f * 2.5f;
+          }
+
+          transform.position = Vector3.Lerp(transform.position, getHandSphereCenter(leftHand), catchUpDelta);
+          transform.localScale = Vector3.Lerp(transform.localScale, scaleAfterTransStart, catchUpDelta);
+          holding_iter++;
+        } else {
+          transform.position = getHandSphereCenter(leftHand);
+          Vector3 finalScale = Vector3.one * getHandSphereDiameter(leftHand) / 100f * 2.5f;
+          transform.localScale = Vector3.Lerp(transform.localScale, finalScale, catchUpDelta);
+        }
+        break;
+      case TwoHandStatus.RIGHT_HOLDING:
+        setHandStatus("RIGHT_HOLDING");
+
+        holdingHand = rightHand;
+
+        if (holding_iter <= max_holding_iters) {
+          if (holding_iter == 0) {
+            max_holding_iters = getIterationsForLerp(minPercentDone, catchUpDelta);
+            scaleAfterTransStart = Vector3.one * getHandSphereDiameter(rightHand) / 100f * 2.5f;
+          }
+
+          transform.position = Vector3.Lerp(transform.position, getHandSphereCenter(rightHand), catchUpDelta);
+          transform.localScale = Vector3.Lerp(transform.localScale, scaleAfterTransStart, catchUpDelta);
+          holding_iter++;
+        } else {
+          transform.position = getHandSphereCenter(rightHand);
+          Vector3 finalScale = Vector3.one * getHandSphereDiameter(rightHand) / 100f * 2.5f;
+          transform.localScale = Vector3.Lerp(transform.localScale, finalScale, catchUpDelta);
+        }
+
+        break;
+      case TwoHandStatus.FORCE_PUSH_TO_LEFT:
+        setHandStatus("FORCE_PUSH_TO_LEFT");
+
+        if (force_push_iter <= max_force_push_iters) {
+          if (force_push_iter == 0) {
+            max_force_push_iters = getIterationsForLerp(minPercentDone, catchUpDelta);
+            scaleAfterTransStart = Vector3.one * getHandSphereDiameter(leftHand) / 100f * 2.5f;
+          }
+
+          transform.position = Vector3.Lerp(transform.position, getHandSphereCenter(leftHand), catchUpDelta / 2);
+          transform.localScale = Vector3.Lerp(transform.localScale, scaleAfterTransStart, catchUpDelta);
+          force_push_iter++;
+        } else {
+          twoStatus = TwoHandStatus.LEFT_HOLDING;
+        }
+
+        break;
+      case TwoHandStatus.FORCE_PUSH_TO_RIGHT:
+        setHandStatus("FORCE_PUSH_TO_RIGHT");
+
+        if (force_push_iter <= max_force_push_iters) {
+          if (force_push_iter == 0) {
+            max_force_push_iters = getIterationsForLerp(minPercentDone, catchUpDelta);
+            scaleAfterTransStart = Vector3.one * getHandSphereDiameter(rightHand) / 100f * 2.5f;
+          }
+
+          transform.position = Vector3.Lerp(transform.position, getHandSphereCenter(rightHand), catchUpDelta / 2);
+          transform.localScale = Vector3.Lerp(transform.localScale, scaleAfterTransStart, catchUpDelta);
+          force_push_iter++;
+        } else {
+          twoStatus = TwoHandStatus.RIGHT_HOLDING;
+        }
+
+        break;
+    }
   }
   public void ZeroToTwo(Hand[] futureHands, float transLife) {
     this.setDebugText("ZeroToTwo for " + transLife);
+    twoStatus = TwoHandStatus.IDLE;
   } // unlikely
   public void OneToTwo(Hand[] futureHands, float transLife) {
     this.setDebugText("OneToTwo for " + transLife);
+
+    Vector3 finalScale;
+    if (oneStatus == OneHandStatus.HOLDING) {
+      if (holdingHand.Id == futureHands[0].Id) { // left
+        twoStatus = TwoHandStatus.LEFT_HOLDING;
+        Hand leftHand = futureHands[0];
+
+        transform.position = getHandSphereCenter(leftHand);
+        finalScale = Vector3.one * getHandSphereDiameter(leftHand) / 100f * 2.5f;
+        transform.localScale = Vector3.Lerp(transform.localScale, finalScale, catchUpDelta);
+      } else if (holdingHand.Id == futureHands[1].Id) {// right
+        twoStatus = TwoHandStatus.RIGHT_HOLDING;
+        Hand rightHand = futureHands[1];
+        
+        transform.position = getHandSphereCenter(rightHand);
+        finalScale = Vector3.one * getHandSphereDiameter(rightHand) / 100f * 2.5f;
+        transform.localScale = Vector3.Lerp(transform.localScale, finalScale, catchUpDelta);
+      } else { // not holding, this should not be called
+        twoStatus = TwoHandStatus.IDLE;
+        Debug.Log("this should not be called");
+      }
+    } else {
+      twoStatus = TwoHandStatus.IDLE;
+      transform.position = Vector3.Lerp(transform.position, defaultEarthPosition, catchUpDelta / 8);
+      transform.localScale = Vector3.Lerp(transform.localScale, defaultEarthScale, catchUpDelta / 8);
+    }
   }
 
   public void TooManyMands() {
@@ -321,7 +541,7 @@ public class EarthControllerScript : MonoBehaviour, HandManager {
 
   Rigidbody rb;
 
-  HandManagerProcessor hmp;
+  private HandManagerProcessor hmp;
 
   // Use this for initialization
   void Start() {
